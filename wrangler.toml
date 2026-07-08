@@ -1,0 +1,17 @@
+name = "barcode-generator"
+type = "pages"
+account_id = ""
+workers_dev = false
+route = ""
+zone_id = ""
+
+[build]
+command = "npm run build"
+publish_dir = "dist"
+
+[env.production]
+name = "barcode-generator-prod"
+
+[[pages_functions]]
+source = "functions/api/**/*.ts"
+destination = "/api/*"
