@@ -1,5 +1,8 @@
 name = "barcode-generator"
 compatibility_date = "2026-07-08"
+pages_build_output_dir = "dist"
 
-[assets]
-directory = "./dist"
+[[kv_namespaces]]
+binding = "LABEL_KV"
+id = "LABEL_KV_ID_PLACEHOLDER"
+preview_id = "LABEL_KV_PREVIEW_ID_PLACEHOLDER"

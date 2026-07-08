@@ -53,3 +53,29 @@ export interface LabelTemplate {
   backgroundColor?: string;
   elements: LabelElement[];
 }
+
+export interface User {
+  id: string;
+  username: string;
+  role: 'admin' | 'user';
+  createdAt?: string;
+  status?: 'active' | 'disabled';
+}
+
+export interface StatsData {
+  totalUsers: number;
+  totalTemplates: number;
+  totalLabels: number;
+  activeUsers: number;
+  labelsToday: number;
+  labelsThisWeek: number;
+  labelsThisMonth: number;
+}
+
+export interface SiteContent {
+  id: string;
+  key: string;
+  title: string;
+  content: string;
+  updatedAt: string;
+}
