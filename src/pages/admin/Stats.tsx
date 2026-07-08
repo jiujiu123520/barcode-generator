@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, LayoutTemplate, CalendarClock, BarChart3, AlertCircle, TrendingUp } from 'lucide-react';
+import { Users, LayoutTemplate, Calendar, BarChart3, AlertCircle, TrendingUp } from 'lucide-react';
 import { apiGet } from '@/utils/api';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -86,7 +86,7 @@ export default function Stats() {
   const overviewCards = [
     { label: '总用户数', value: stats?.totalUsers ?? 0, icon: Users, color: 'text-blue-500', bg: 'bg-blue-50' },
     { label: '总模板数', value: stats?.totalTemplates ?? 0, icon: LayoutTemplate, color: 'text-purple-500', bg: 'bg-purple-50' },
-    { label: '今日生成', value: stats?.todayGenerations ?? 0, icon: CalendarClock, color: 'text-green-500', bg: 'bg-green-50' },
+    { label: '今日生成', value: stats?.todayGenerations ?? 0, icon: Calendar, color: 'text-green-500', bg: 'bg-green-50' },
     { label: '总生成次数', value: stats?.totalGenerations ?? 0, icon: BarChart3, color: 'text-primary-500', bg: 'bg-primary-50' },
   ];
 

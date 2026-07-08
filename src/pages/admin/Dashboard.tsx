@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, LayoutTemplate, CalendarClock, BarChart3, AlertCircle } from 'lucide-react';
+import { Users, LayoutTemplate, Calendar, BarChart3, AlertCircle } from 'lucide-react';
 import { apiGet } from '@/utils/api';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -71,7 +71,7 @@ export default function Dashboard() {
   const cards = [
     { label: '总用户数', value: stats?.totalUsers ?? 0, icon: Users, desc: '注册用户总数' },
     { label: '总模板数', value: stats?.totalTemplates ?? 0, icon: LayoutTemplate, desc: '已创建的模板' },
-    { label: '今日生成次数', value: stats?.todayGenerations ?? 0, icon: CalendarClock, desc: '今日生成记录' },
+    { label: '今日生成次数', value: stats?.todayGenerations ?? 0, icon: Calendar, desc: '今日生成记录' },
     { label: '总生成次数', value: stats?.totalGenerations ?? 0, icon: BarChart3, desc: '累计生成次数' },
   ];
 

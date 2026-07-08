@@ -1,5 +1,5 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { Spinner } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
 // 受保护路由：要求已登录且（可选）具备管理员权限
@@ -19,7 +19,7 @@ const ProtectedRoute = ({ requireAdmin = false }: ProtectedRouteProps) => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="flex flex-col items-center space-y-3 text-gray-500">
-          <Spinner className="w-8 h-8 animate-spin text-red-500" />
+          <Loader2 className="w-8 h-8 animate-spin text-red-500" />
           <p className="text-sm">加载中...</p>
         </div>
       </div>

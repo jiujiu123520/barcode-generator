@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Search, Trash2, X, AlertCircle, Loader2, Users as UsersIcon, User as UserIcon, Crown } from 'lucide-react';
+import { Search, Trash2, X, AlertCircle, Loader2, Users as UsersIcon, User as UserIcon, Shield } from 'lucide-react';
 import { apiGet, apiPut, apiDelete } from '@/utils/api';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -179,7 +179,7 @@ export default function Users() {
                         >
                           {u.role === 'admin' ? (
                             <>
-                              <Crown className="w-3 h-3 mr-1" />
+                              <Shield className="w-3 h-3 mr-1" />
                               管理员
                             </>
                           ) : (
