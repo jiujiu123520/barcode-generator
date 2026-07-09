@@ -45,6 +45,8 @@ interface BarcodeSettings {
   footnote5: string;
   footnotePosition: 'top' | 'bottom';
   footnoteSize: number;
+  // 清晰度倍率
+  dpiScale: number;
 }
 
 // 默认条形码设置 - 参考 y56y.com 的默认尺寸 (40*20mm ≈ 150*75px @300dpi)
@@ -66,6 +68,7 @@ const DEFAULT_SETTINGS: BarcodeSettings = {
   footnote5: '',
   footnotePosition: 'bottom',
   footnoteSize: 12,
+  dpiScale: 3,
 };
 
 // 数据项接口
@@ -95,6 +98,7 @@ const BarcodeBatch = () => {
   const [activeTab, setActiveTab] = useState<'basic' | 'footnote1' | 'footnote2' | 'footnote3' | 'footnote4' | 'footnote5'>('basic');
   const [showFormatDropdown, setShowFormatDropdown] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
+  const [previewUrl, setPreviewUrl] = useState('');
   const [importError, setImportError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -137,10 +141,68 @@ const BarcodeBatch = () => {
     }
   }, []);
 
-  // 预览Canvas随设置和索引变化而更新
+  // 预览随设置和索引变化而更新（高清）
   useEffect(() => {
-    if (currentStep === 2 && previewCanvasRef.current && dataItems[previewIndex]) {
-      generateBarcode(previewCanvasRef.current, dataItems[previewIndex].value || '', settings);
+    if (currentStep === 2 && dataItems[previewIndex]) {
+      const item = dataItems[previewIndex];
+      const baseCanvas = document.createElement('canvas');
+      generateBarcode(baseCanvas, item.value || '', settings);
+
+      const hasFootnote = settings.footnote1 || settings.footnote2 || settings.footnote3 || item.footnote1;
+      const extraHeight = hasFootnote ? settings.footnoteSize + 10 : 0;
+      const totalWidth = baseCanvas.width;
+      const totalHeight = baseCanvas.height + extraHeight;
+
+      const scale = settings.dpiScale || 2;
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = totalWidth * scale;
+      finalCanvas.height = totalHeight * scale;
+
+      const finalCtx = finalCanvas.getContext('2d');
+      if (finalCtx) {
+        finalCtx.imageSmoothingEnabled = false;
+        finalCtx.fillStyle = settings.background;
+        finalCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+
+        const canvasToScale = document.createElement('canvas');
+        canvasToScale.width = totalWidth;
+        canvasToScale.height = totalHeight;
+        const ctx = canvasToScale.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = settings.background;
+          ctx.fillRect(0, 0, totalWidth, totalHeight);
+
+          if (hasFootnote && settings.footnotePosition === 'top') {
+            ctx.drawImage(baseCanvas, 0, extraHeight);
+            ctx.fillStyle = settings.lineColor;
+            ctx.font = `${settings.footnoteSize}px sans-serif`;
+            ctx.textAlign = 'center';
+            let footnoteText = '';
+            if (settings.footnote1) footnoteText += settings.footnote1 + ' ';
+            if (settings.footnote2) footnoteText += settings.footnote2 + ' ';
+            if (settings.footnote3) footnoteText += settings.footnote3 + ' ';
+            if (item.footnote1) footnoteText += item.footnote1;
+            ctx.fillText(footnoteText.trim(), totalWidth / 2, settings.footnoteSize);
+          } else {
+            ctx.drawImage(baseCanvas, 0, 0);
+            if (hasFootnote) {
+              ctx.fillStyle = settings.lineColor;
+              ctx.font = `${settings.footnoteSize}px sans-serif`;
+              ctx.textAlign = 'center';
+              let footnoteText = '';
+              if (settings.footnote1) footnoteText += settings.footnote1 + ' ';
+              if (settings.footnote2) footnoteText += settings.footnote2 + ' ';
+              if (settings.footnote3) footnoteText += settings.footnote3 + ' ';
+              if (item.footnote1) footnoteText += item.footnote1;
+              ctx.fillText(footnoteText.trim(), totalWidth / 2, totalHeight - 5);
+            }
+          }
+        }
+
+        finalCtx.drawImage(canvasToScale, 0, 0, finalCanvas.width, finalCanvas.height);
+      }
+
+      setPreviewUrl(finalCanvas.toDataURL('image/png'));
     }
   }, [currentStep, previewIndex, settings, dataItems, generateBarcode]);
 
@@ -223,6 +285,16 @@ const BarcodeBatch = () => {
     }
   };
 
+  // 清空所有数据
+  const handleClearAll = () => {
+    if (confirm('确定要清空所有数据吗？此操作不可撤销。')) {
+      setDataItems([]);
+      setPreviewIndex(0);
+      setTextInput('');
+      setImportError('');
+    }
+  };
+
   // 更新数据项
   const handleUpdateItem = (id: string, field: keyof DataItem, value: string) => {
     setDataItems(dataItems.map(item => 
@@ -230,72 +302,86 @@ const BarcodeBatch = () => {
     ));
   };
 
-  // 导出PNG
-  const handleExportPNG = async () => {
-    for (const item of dataItems) {
-      const canvas = document.createElement('canvas');
-      // 让 JsBarcode 自动设置 canvas 尺寸
-      generateBarcode(canvas, item.value, settings);
+  // 生成单张条形码图片Canvas（高清）
+  const generateBarcodeCanvas = useCallback((item: DataItem): HTMLCanvasElement => {
+    const baseCanvas = document.createElement('canvas');
+    generateBarcode(baseCanvas, item.value, settings);
 
-      // 如果有脚注，需要扩展 canvas 高度
-      const hasFootnote = settings.footnote1 || settings.footnote2 || settings.footnote3 || item.footnote1;
-      if (hasFootnote) {
-        const originalCanvas = document.createElement('canvas');
-        originalCanvas.width = canvas.width;
-        originalCanvas.height = canvas.height;
-        const origCtx = originalCanvas.getContext('2d');
-        if (origCtx) origCtx.drawImage(canvas, 0, 0);
+    const hasFootnote = settings.footnote1 || settings.footnote2 || settings.footnote3 || item.footnote1;
+    const extraHeight = hasFootnote ? settings.footnoteSize + 10 : 0;
 
-        const extraHeight = settings.footnoteSize + 10;
-        const newCanvas = document.createElement('canvas');
-        newCanvas.width = canvas.width;
-        newCanvas.height = canvas.height + extraHeight;
-        const newCtx = newCanvas.getContext('2d');
-        if (newCtx) {
-          newCtx.fillStyle = settings.background;
-          newCtx.fillRect(0, 0, newCanvas.width, newCanvas.height);
+    const totalWidth = baseCanvas.width;
+    const totalHeight = baseCanvas.height + extraHeight;
 
-          if (settings.footnotePosition === 'top') {
-            // 脚注在顶部
-            newCtx.drawImage(originalCanvas, 0, extraHeight);
-            newCtx.fillStyle = settings.lineColor;
-            newCtx.font = `${settings.footnoteSize}px sans-serif`;
-            newCtx.textAlign = 'center';
+    const scale = settings.dpiScale || 1;
+    const finalCanvas = document.createElement('canvas');
+    finalCanvas.width = totalWidth * scale;
+    finalCanvas.height = totalHeight * scale;
+
+    const finalCtx = finalCanvas.getContext('2d');
+    if (finalCtx) {
+      finalCtx.imageSmoothingEnabled = false;
+      finalCtx.fillStyle = settings.background;
+      finalCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+
+      const canvasToScale = document.createElement('canvas');
+      canvasToScale.width = totalWidth;
+      canvasToScale.height = totalHeight;
+      const ctx = canvasToScale.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = settings.background;
+        ctx.fillRect(0, 0, totalWidth, totalHeight);
+
+        if (hasFootnote && settings.footnotePosition === 'top') {
+          ctx.drawImage(baseCanvas, 0, extraHeight);
+          ctx.fillStyle = settings.lineColor;
+          ctx.font = `${settings.footnoteSize}px sans-serif`;
+          ctx.textAlign = 'center';
+          let footnoteText = '';
+          if (settings.footnote1) footnoteText += settings.footnote1 + ' ';
+          if (settings.footnote2) footnoteText += settings.footnote2 + ' ';
+          if (settings.footnote3) footnoteText += settings.footnote3 + ' ';
+          if (item.footnote1) footnoteText += item.footnote1;
+          ctx.fillText(footnoteText.trim(), totalWidth / 2, settings.footnoteSize);
+        } else {
+          ctx.drawImage(baseCanvas, 0, 0);
+          if (hasFootnote) {
+            ctx.fillStyle = settings.lineColor;
+            ctx.font = `${settings.footnoteSize}px sans-serif`;
+            ctx.textAlign = 'center';
             let footnoteText = '';
             if (settings.footnote1) footnoteText += settings.footnote1 + ' ';
             if (settings.footnote2) footnoteText += settings.footnote2 + ' ';
             if (settings.footnote3) footnoteText += settings.footnote3 + ' ';
             if (item.footnote1) footnoteText += item.footnote1;
-            newCtx.fillText(footnoteText.trim(), newCanvas.width / 2, settings.footnoteSize);
-          } else {
-            // 脚注在底部
-            newCtx.drawImage(originalCanvas, 0, 0);
-            newCtx.fillStyle = settings.lineColor;
-            newCtx.font = `${settings.footnoteSize}px sans-serif`;
-            newCtx.textAlign = 'center';
-            let footnoteText = '';
-            if (settings.footnote1) footnoteText += settings.footnote1 + ' ';
-            if (settings.footnote2) footnoteText += settings.footnote2 + ' ';
-            if (settings.footnote3) footnoteText += settings.footnote3 + ' ';
-            if (item.footnote1) footnoteText += item.footnote1;
-            newCtx.fillText(footnoteText.trim(), newCanvas.width / 2, newCanvas.height - 5);
-          }
-          // 复制到原canvas
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            canvas.width = newCanvas.width;
-            canvas.height = newCanvas.height;
-            ctx.drawImage(newCanvas, 0, 0);
+            ctx.fillText(footnoteText.trim(), totalWidth / 2, totalHeight - 5);
           }
         }
       }
 
+      finalCtx.drawImage(canvasToScale, 0, 0, finalCanvas.width, finalCanvas.height);
+    }
+
+    return finalCanvas;
+  }, [settings, generateBarcode]);
+
+  // 下载单个条形码
+  const handleDownloadSingle = (item: DataItem) => {
+    const canvas = generateBarcodeCanvas(item);
+    const link = document.createElement('a');
+    link.download = `${item.value || 'barcode'}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  };
+
+  // 导出PNG
+  const handleExportPNG = async () => {
+    for (const item of dataItems) {
+      const canvas = generateBarcodeCanvas(item);
       const link = document.createElement('a');
       link.download = `${item.value || 'barcode'}-${item.id}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
-
-      // 延迟下载，避免浏览器阻止
       await new Promise(resolve => setTimeout(resolve, 100));
     }
   };
@@ -434,13 +520,22 @@ const BarcodeBatch = () => {
               <div className="bg-white rounded-xl border border-gray-100 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-medium text-gray-900">已导入数据 ({dataItems.length}条)</h3>
-                  <button
-                    onClick={handleAddItem}
-                    className="text-blue-600 text-sm flex items-center gap-1"
-                  >
-                    <Plus className="w-4 h-4" />
-                    添加
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleClearAll}
+                      className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm flex items-center gap-1 hover:bg-red-100 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      清空
+                    </button>
+                    <button
+                      onClick={handleAddItem}
+                      className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm flex items-center gap-1 hover:bg-blue-100 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      添加
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   {dataItems.map((item, index) => (
@@ -453,8 +548,16 @@ const BarcodeBatch = () => {
                         placeholder="条码内容"
                       />
                       <button
+                        onClick={() => handleDownloadSingle(item)}
+                        className="p-1 text-gray-400 hover:text-blue-500"
+                        title="下载"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => handleRemoveItem(item.id)}
                         className="p-1 text-gray-400 hover:text-red-500"
+                        title="删除"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -471,14 +574,29 @@ const BarcodeBatch = () => {
           <div className="space-y-4">
             {/* Preview */}
             <div className="bg-white rounded-xl border border-gray-100 p-4">
-              <h3 className="font-medium text-gray-900 mb-3">条形码预览</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-medium text-gray-900">条形码预览</h3>
+                {dataItems[previewIndex] && (
+                  <button
+                    onClick={() => handleDownloadSingle(dataItems[previewIndex])}
+                    className="text-blue-600 text-sm flex items-center gap-1"
+                  >
+                    <Download className="w-4 h-4" />
+                    下载当前
+                  </button>
+                )}
+              </div>
               <div className="bg-gray-50 rounded-lg p-4 flex justify-center">
                 {dataItems[previewIndex] && (
                   <div className="text-center">
-                    <canvas 
-                      ref={previewCanvasRef}
-                      className="mx-auto"
-                    />
+                    {previewUrl && (
+                      <img
+                        src={previewUrl}
+                        alt="Barcode Preview"
+                        className="mx-auto"
+                        style={{ maxWidth: '100%', maxHeight: '200px' }}
+                      />
+                    )}
                     <p className="text-xs text-gray-500 mt-2">
                       第 {previewIndex + 1} 条 / 共 {dataItems.length} 条
                     </p>
@@ -655,6 +773,29 @@ const BarcodeBatch = () => {
                         onChange={(e) => updateSetting('margin', Number(e.target.value))}
                         className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                       />
+                    </div>
+
+                    {/* DPI Scale */}
+                    <div>
+                      <label className="text-sm text-gray-600 mb-2 block">清晰度: {settings.dpiScale}x (高清)</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {[1, 2, 3, 4].map((scale) => (
+                          <button
+                            key={scale}
+                            onClick={() => updateSetting('dpiScale', scale)}
+                            className={`py-2 rounded-lg text-sm font-medium transition-colors ${
+                              settings.dpiScale === scale
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            {scale}x
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">
+                        倍率越高越清晰，文件也越大
+                      </p>
                     </div>
                   </div>
                 )}

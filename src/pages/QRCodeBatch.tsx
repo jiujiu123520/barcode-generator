@@ -26,6 +26,7 @@ interface QRCodeSettings {
   footnote2: string;
   footnotePosition: 'top' | 'bottom';
   footnoteSize: number;
+  dpiScale: number;
 }
 
 // 默认二维码设置 - 参考 y56y.com 的默认尺寸 (30*30mm)
@@ -41,6 +42,7 @@ const DEFAULT_SETTINGS: QRCodeSettings = {
   footnote2: '',
   footnotePosition: 'bottom',
   footnoteSize: 12,
+  dpiScale: 2,
 };
 
 // 数据项接口
@@ -104,10 +106,14 @@ const QRCodeBatch = () => {
     }
   }, []);
 
-  // 进入步骤2或切换预览索引时自动生成预览
+  // 进入步骤2或切换预览索引时自动生成预览（高清）
   useEffect(() => {
     if (currentStep === 2 && dataItems[previewIndex]) {
-      generateQRCode(dataItems[previewIndex].value, settings).then(url => setPreviewUrl(url));
+      const scale = settings.dpiScale || 2;
+      generateQRCode(dataItems[previewIndex].value, {
+        ...settings,
+        size: settings.size * scale,
+      }).then(url => setPreviewUrl(url));
     }
   }, [currentStep, previewIndex, settings, dataItems, generateQRCode]);
 
@@ -204,6 +210,18 @@ const QRCodeBatch = () => {
     }
   };
 
+  // 清空所有数据
+  const handleClearAll = () => {
+    if (confirm('确定要清空所有数据吗？此操作不可撤销。')) {
+      setDataItems([]);
+      setPreviewIndex(0);
+      setPreviewUrl('');
+      setTextInput('');
+      setImportError('');
+      setExportPreviewUrls([]);
+    }
+  };
+
   // 更新数据项
   const handleUpdateItem = (id: string, field: keyof DataItem, value: string) => {
     setDataItems(dataItems.map(item =>
@@ -211,38 +229,63 @@ const QRCodeBatch = () => {
     ));
   };
 
+  // 生成单张二维码图片Canvas（高清）
+  const generateQRCodeCanvas = useCallback(async (item: DataItem): Promise<HTMLCanvasElement | null> => {
+    const scale = settings.dpiScale || 1;
+    const qrUrl = await generateQRCode(item.value, {
+      ...settings,
+      size: settings.size * scale,
+    });
+    if (!qrUrl) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = (settings.size + settings.margin * 2) * scale;
+    canvas.height = (settings.size + settings.margin * 2) * scale + (settings.footnote1 ? (settings.footnoteSize + 10) * scale : 0);
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = settings.color.light;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const img = new window.Image();
+    img.src = qrUrl;
+    await new Promise<void>((resolve) => {
+      img.onload = () => resolve();
+      img.onerror = () => resolve();
+    });
+
+    ctx.drawImage(img, 0, 0);
+
+    if (settings.footnote1) {
+      ctx.fillStyle = '#000000';
+      ctx.font = `${settings.footnoteSize * scale}px sans-serif`;
+      ctx.textAlign = 'center';
+      const y = settings.footnotePosition === 'top'
+        ? (settings.footnoteSize + 5) * scale
+        : canvas.height - 5 * scale;
+      ctx.fillText(settings.footnote1, canvas.width / 2, y);
+    }
+
+    return canvas;
+  }, [settings, generateQRCode]);
+
+  // 下载单个二维码
+  const handleDownloadSingle = async (item: DataItem) => {
+    const canvas = await generateQRCodeCanvas(item);
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.download = `${item.value || 'qrcode'}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  };
+
   // 导出PNG
   const handleExportPNG = async () => {
     for (const item of dataItems) {
-      const qrUrl = await generateQRCode(item.value, settings);
-      if (!qrUrl) continue;
-
-      const canvas = document.createElement('canvas');
-      canvas.width = settings.size + settings.margin * 2;
-      canvas.height = settings.size + settings.margin * 2 + (settings.footnote1 ? settings.footnoteSize + 10 : 0);
-
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = settings.color.light;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        const img = new window.Image();
-        img.src = qrUrl;
-        await new Promise((resolve) => {
-          img.onload = resolve;
-          img.onerror = resolve;
-        });
-
-        ctx.drawImage(img, 0, 0);
-
-        if (settings.footnote1) {
-          ctx.fillStyle = '#000000';
-          ctx.font = `${settings.footnoteSize}px sans-serif`;
-          ctx.textAlign = 'center';
-          const y = settings.footnotePosition === 'top' ? settings.footnoteSize + 5 : canvas.height - 5;
-          ctx.fillText(settings.footnote1, canvas.width / 2, y);
-        }
-      }
+      const canvas = await generateQRCodeCanvas(item);
+      if (!canvas) continue;
 
       const link = document.createElement('a');
       link.download = `${item.value || 'qrcode'}-${item.id}.png`;
@@ -391,13 +434,22 @@ const QRCodeBatch = () => {
               <div className="bg-white rounded-xl border border-gray-100 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-medium text-gray-900">已导入数据 ({dataItems.length}条)</h3>
-                  <button
-                    onClick={handleAddItem}
-                    className="text-purple-600 text-sm flex items-center gap-1"
-                  >
-                    <Plus className="w-4 h-4" />
-                    添加
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleClearAll}
+                      className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm flex items-center gap-1 hover:bg-red-100 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      清空
+                    </button>
+                    <button
+                      onClick={handleAddItem}
+                      className="px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg text-sm flex items-center gap-1 hover:bg-purple-100 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      添加
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   {dataItems.map((item, index) => (
@@ -410,8 +462,16 @@ const QRCodeBatch = () => {
                         placeholder="二维码内容"
                       />
                       <button
+                        onClick={() => handleDownloadSingle(item)}
+                        className="p-1 text-gray-400 hover:text-purple-500"
+                        title="下载"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => handleRemoveItem(item.id)}
                         className="p-1 text-gray-400 hover:text-red-500"
+                        title="删除"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -428,7 +488,18 @@ const QRCodeBatch = () => {
           <div className="space-y-4">
             {/* Preview */}
             <div className="bg-white rounded-xl border border-gray-100 p-4">
-              <h3 className="font-medium text-gray-900 mb-3">二维码预览</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-medium text-gray-900">二维码预览</h3>
+                {dataItems[previewIndex] && (
+                  <button
+                    onClick={() => handleDownloadSingle(dataItems[previewIndex])}
+                    className="text-purple-600 text-sm flex items-center gap-1"
+                  >
+                    <Download className="w-4 h-4" />
+                    下载当前
+                  </button>
+                )}
+              </div>
               <div className="bg-gray-50 rounded-lg p-4 flex justify-center">
                 {dataItems[previewIndex] && (
                   <div className="text-center">
@@ -452,7 +523,11 @@ const QRCodeBatch = () => {
                           onClick={() => {
                             const newIndex = Math.max(0, previewIndex - 1);
                             setPreviewIndex(newIndex);
-                            generateQRCode(dataItems[newIndex].value, settings).then(url => setPreviewUrl(url));
+                            const scale = settings.dpiScale || 2;
+                            generateQRCode(dataItems[newIndex].value, {
+                              ...settings,
+                              size: settings.size * scale,
+                            }).then(url => setPreviewUrl(url));
                           }}
                           disabled={previewIndex === 0}
                           className="px-3 py-1 text-xs bg-gray-200 rounded disabled:opacity-50"
@@ -463,7 +538,11 @@ const QRCodeBatch = () => {
                           onClick={() => {
                             const newIndex = Math.min(dataItems.length - 1, previewIndex + 1);
                             setPreviewIndex(newIndex);
-                            generateQRCode(dataItems[newIndex].value, settings).then(url => setPreviewUrl(url));
+                            const scale = settings.dpiScale || 2;
+                            generateQRCode(dataItems[newIndex].value, {
+                              ...settings,
+                              size: settings.size * scale,
+                            }).then(url => setPreviewUrl(url));
                           }}
                           disabled={previewIndex === dataItems.length - 1}
                           className="px-3 py-1 text-xs bg-gray-200 rounded disabled:opacity-50"
@@ -586,6 +665,29 @@ const QRCodeBatch = () => {
                           className="w-full h-10 rounded-lg border border-gray-200"
                         />
                       </div>
+                    </div>
+
+                    {/* DPI Scale */}
+                    <div>
+                      <label className="text-sm text-gray-600 mb-2 block">清晰度: {settings.dpiScale}x (高清)</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {[1, 2, 3, 4].map((scale) => (
+                          <button
+                            key={scale}
+                            onClick={() => updateSetting('dpiScale', scale)}
+                            className={`py-2 rounded-lg text-sm font-medium transition-colors ${
+                              settings.dpiScale === scale
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            {scale}x
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">
+                        倍率越高越清晰，文件也越大
+                      </p>
                     </div>
                   </div>
                 )}
