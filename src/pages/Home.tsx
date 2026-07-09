@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Barcode, QrCode, FileText, ArrowRight } from 'lucide-react';
+import { Barcode, QrCode, ArrowRight } from 'lucide-react';
 
 const Home = () => {
   const tools = [
@@ -16,13 +16,6 @@ const Home = () => {
       description: '批量导入数据，快速生成二维码标签',
       path: '/qrcode',
       color: 'bg-gradient-to-br from-purple-500 to-purple-600',
-    },
-    {
-      icon: FileText,
-      title: '标签模板',
-      description: '可视化编辑标签模板',
-      path: '/template',
-      color: 'bg-gradient-to-br from-green-500 to-green-600',
     },
   ];
 
@@ -64,8 +57,8 @@ const Home = () => {
 
         {/* Info */}
         <div className="mt-8 text-center text-xs text-gray-400">
-          <p>支持多种条形码格式：EAN-13、Code128、Code39、UPC-A 等</p>
-          <p className="mt-1">支持二维码格式：QR Code、Data Matrix、PDF417 等</p>
+          <p>数据保存在本地浏览器，生成无限制，单次导入上限300条</p>
+          <p className="mt-1">支持多种条形码格式：EAN-13、Code128、Code39、UPC-A 等</p>
         </div>
       </main>
     </div>

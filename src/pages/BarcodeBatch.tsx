@@ -1,7 +1,10 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Upload, FileText, Settings, Download, ChevronRight, X, Plus, Trash2, Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Upload, Settings, Download, ChevronRight, Plus, Trash2, Check, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
+
+// 导入数据上限
+const MAX_IMPORT = 300;
 
 // 步骤定义
 const STEPS = [
@@ -76,14 +79,33 @@ interface DataItem {
 
 const BarcodeBatch = () => {
   const [currentStep, setCurrentStep] = useState(1);
-  const [dataItems, setDataItems] = useState<DataItem[]>([]);
+  const [dataItems, setDataItems] = useState<DataItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('barcode_data_items');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [textInput, setTextInput] = useState('');
-  const [settings, setSettings] = useState<BarcodeSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<BarcodeSettings>(() => {
+    try {
+      const saved = localStorage.getItem('barcode_settings');
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+    } catch { return DEFAULT_SETTINGS; }
+  });
   const [activeTab, setActiveTab] = useState<'basic' | 'footnote1' | 'footnote2' | 'footnote3' | 'footnote4' | 'footnote5'>('basic');
   const [showFormatDropdown, setShowFormatDropdown] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [importError, setImportError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 数据保存到本地
+  useEffect(() => {
+    localStorage.setItem('barcode_data_items', JSON.stringify(dataItems));
+  }, [dataItems]);
+
+  useEffect(() => {
+    localStorage.setItem('barcode_settings', JSON.stringify(settings));
+  }, [settings]);
 
   // 生成条形码到Canvas
   const generateBarcode = useCallback((canvas: HTMLCanvasElement, value: string, settings: BarcodeSettings) => {
@@ -117,6 +139,11 @@ const BarcodeBatch = () => {
   // 导入文本数据
   const handleImportText = () => {
     const lines = textInput.split('\n').filter(line => line.trim());
+    if (lines.length > MAX_IMPORT) {
+      setImportError(`导入失败：数据超过 ${MAX_IMPORT} 条限制（当前 ${lines.length} 条）`);
+      return;
+    }
+    setImportError('');
     const newItems: DataItem[] = lines.map((line, index) => ({
       id: `item-${Date.now()}-${index}`,
       value: line.trim(),
@@ -136,6 +163,12 @@ const BarcodeBatch = () => {
     reader.onload = (event) => {
       const content = event.target?.result as string;
       const lines = content.split('\n').filter(line => line.trim());
+      
+      if (lines.length > MAX_IMPORT) {
+        setImportError(`导入失败：数据超过 ${MAX_IMPORT} 条限制（当前 ${lines.length} 条）`);
+        return;
+      }
+      setImportError('');
       
       // CSV格式处理
       const newItems: DataItem[] = lines.map((line, index) => {
@@ -159,6 +192,11 @@ const BarcodeBatch = () => {
 
   // 添加单条数据
   const handleAddItem = () => {
+    if (dataItems.length >= MAX_IMPORT) {
+      setImportError(`已达上限：最多 ${MAX_IMPORT} 条数据`);
+      return;
+    }
+    setImportError('');
     const newItem: DataItem = {
       id: `item-${Date.now()}`,
       value: '',
@@ -293,14 +331,24 @@ const BarcodeBatch = () => {
           <div className="space-y-4">
             {/* Import Methods */}
             <div className="bg-white rounded-xl border border-gray-100 p-4">
-              <h3 className="font-medium text-gray-900 mb-3">导入方式</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-medium text-gray-900">导入方式</h3>
+                <span className="text-xs text-gray-400">上限 {MAX_IMPORT} 条</span>
+              </div>
+
+              {importError && (
+                <div className="mb-3 flex items-center gap-2 bg-red-50 text-red-600 text-sm rounded-lg px-3 py-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{importError}</span>
+                </div>
+              )}
               
               {/* Text Input */}
               <div className="mb-4">
                 <label className="text-sm text-gray-600 mb-2 block">手动输入（每行一条数据）</label>
                 <textarea
                   value={textInput}
-                  onChange={(e) => setTextInput(e.target.value)}
+                  onChange={(e) => { setTextInput(e.target.value); setImportError(''); }}
                   placeholder="请输入条码内容，每行一条..."
                   className="w-full h-24 px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-blue-500"
                 />
@@ -315,11 +363,11 @@ const BarcodeBatch = () => {
 
               {/* File Import */}
               <div className="border-t pt-4">
-                <label className="text-sm text-gray-600 mb-2 block">文件导入（Excel/CSV/TXT）</label>
+                <label className="text-sm text-gray-600 mb-2 block">文件导入（CSV/TXT）</label>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".csv,.txt,.xls,.xlsx"
+                  accept=".csv,.txt"
                   onChange={handleFileImport}
                   className="hidden"
                 />

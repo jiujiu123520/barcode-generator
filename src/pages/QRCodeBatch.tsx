@@ -1,7 +1,10 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Upload, Settings, Download, ChevronRight, Plus, Trash2, Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Upload, Settings, Download, ChevronRight, Plus, Trash2, Check, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
 import QRCode from 'qrcode';
+
+// 导入数据上限
+const MAX_IMPORT = 300;
 
 // 步骤定义
 const STEPS = [
@@ -12,21 +15,20 @@ const STEPS = [
 
 // 二维码设置接口
 interface QRCodeSettings {
-  size: number;           // 二维码尺寸 (像素)
-  margin: number;         // 边距
-  errorCorrectionLevel: 'L' | 'M' | 'Q' | 'H';  // 容错级别
+  size: number;
+  margin: number;
+  errorCorrectionLevel: 'L' | 'M' | 'Q' | 'H';
   color: {
-    dark: string;         // 二维码颜色
-    light: string;        // 背景颜色
+    dark: string;
+    light: string;
   };
-  // 附加设置
   footnote1: string;
   footnote2: string;
   footnotePosition: 'top' | 'bottom';
   footnoteSize: number;
 }
 
-// 默认二维码设置 - 参考 y56y.com 的默认尺寸 (30*30mm ≈ 118px @300dpi)
+// 默认二维码设置 - 参考 y56y.com 的默认尺寸 (30*30mm)
 const DEFAULT_SETTINGS: QRCodeSettings = {
   size: 150,
   margin: 2,
@@ -50,19 +52,39 @@ interface DataItem {
 
 const QRCodeBatch = () => {
   const [currentStep, setCurrentStep] = useState(1);
-  const [dataItems, setDataItems] = useState<DataItem[]>([]);
+  const [dataItems, setDataItems] = useState<DataItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('qrcode_data_items');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [textInput, setTextInput] = useState('');
-  const [settings, setSettings] = useState<QRCodeSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<QRCodeSettings>(() => {
+    try {
+      const saved = localStorage.getItem('qrcode_settings');
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+    } catch { return DEFAULT_SETTINGS; }
+  });
   const [activeTab, setActiveTab] = useState<'basic' | 'footnote1' | 'footnote2'>('basic');
   const [showLevelDropdown, setShowLevelDropdown] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [previewUrl, setPreviewUrl] = useState('');
+  const [importError, setImportError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 数据保存到本地
+  useEffect(() => {
+    localStorage.setItem('qrcode_data_items', JSON.stringify(dataItems));
+  }, [dataItems]);
+
+  useEffect(() => {
+    localStorage.setItem('qrcode_settings', JSON.stringify(settings));
+  }, [settings]);
 
   // 容错级别说明
   const ERROR_CORRECTION_LEVELS = [
     { value: 'L', label: 'L - 低 (7%)', desc: '适合干净环境' },
-    { value: 'M', label: 'M - 中 (15%)', desc: '默认推荐', default: true },
+    { value: 'M', label: 'M - 中 (15%)', desc: '默认推荐' },
     { value: 'Q', label: 'Q - 较高 (25%)', desc: '适合有遮挡' },
     { value: 'H', label: 'H - 高 (30%)', desc: '适合 logo 嵌入' },
   ];
@@ -81,22 +103,14 @@ const QRCodeBatch = () => {
     }
   }, []);
 
-  // 更新预览
-  const updatePreview = useCallback(async () => {
-    if (dataItems[previewIndex]) {
-      const url = await generateQRCode(dataItems[previewIndex].value, settings);
-      setPreviewUrl(url);
-    }
-  }, [dataItems, previewIndex, generateQRCode, settings]);
-
-  // 监听变化更新预览
-  useState(() => {
-    updatePreview();
-  });
-
   // 导入文本数据
   const handleImportText = () => {
     const lines = textInput.split('\n').filter(line => line.trim());
+    if (lines.length > MAX_IMPORT) {
+      setImportError(`导入失败：数据超过 ${MAX_IMPORT} 条限制（当前 ${lines.length} 条）`);
+      return;
+    }
+    setImportError('');
     const newItems: DataItem[] = lines.map((line, index) => ({
       id: `item-${Date.now()}-${index}`,
       value: line.trim(),
@@ -109,7 +123,7 @@ const QRCodeBatch = () => {
     }
   };
 
-  // 导入Excel/CSV文件
+  // 导入CSV/TXT文件
   const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -118,8 +132,13 @@ const QRCodeBatch = () => {
     reader.onload = async (event) => {
       const content = event.target?.result as string;
       const lines = content.split('\n').filter(line => line.trim());
-      
-      // CSV格式处理
+
+      if (lines.length > MAX_IMPORT) {
+        setImportError(`导入失败：数据超过 ${MAX_IMPORT} 条限制（当前 ${lines.length} 条）`);
+        return;
+      }
+      setImportError('');
+
       const newItems: DataItem[] = lines.map((line, index) => {
         const cols = line.split(/[,;\t]/);
         return {
@@ -128,7 +147,7 @@ const QRCodeBatch = () => {
           footnote: cols[1]?.trim() || '',
         };
       }).filter(item => item.value);
-      
+
       setDataItems(newItems);
       setPreviewIndex(0);
       if (newItems.length > 0) {
@@ -142,6 +161,11 @@ const QRCodeBatch = () => {
 
   // 添加单条数据
   const handleAddItem = () => {
+    if (dataItems.length >= MAX_IMPORT) {
+      setImportError(`已达上限：最多 ${MAX_IMPORT} 条数据`);
+      return;
+    }
+    setImportError('');
     const newItem: DataItem = {
       id: `item-${Date.now()}`,
       value: '',
@@ -160,7 +184,7 @@ const QRCodeBatch = () => {
 
   // 更新数据项
   const handleUpdateItem = (id: string, field: keyof DataItem, value: string) => {
-    setDataItems(dataItems.map(item => 
+    setDataItems(dataItems.map(item =>
       item.id === id ? { ...item, [field]: value } : item
     ));
   };
@@ -170,23 +194,22 @@ const QRCodeBatch = () => {
     for (const item of dataItems) {
       const qrUrl = await generateQRCode(item.value, settings);
       if (!qrUrl) continue;
-      
-      // 创建带脚注的图片
+
       const canvas = document.createElement('canvas');
       canvas.width = settings.size + settings.margin * 2;
       canvas.height = settings.size + settings.margin * 2 + (settings.footnote1 ? settings.footnoteSize + 10 : 0);
-      
+
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.fillStyle = settings.color.light;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
+
         const img = new window.Image();
         img.src = qrUrl;
-        await new Promise(resolve => img.onload = resolve);
-        
+        await new Promise(resolve => { img.onload = resolve; });
+
         ctx.drawImage(img, 0, 0);
-        
+
         if (settings.footnote1) {
           ctx.fillStyle = '#000000';
           ctx.font = `${settings.footnoteSize}px sans-serif`;
@@ -195,12 +218,12 @@ const QRCodeBatch = () => {
           ctx.fillText(settings.footnote1, canvas.width / 2, y);
         }
       }
-      
+
       const link = document.createElement('a');
       link.download = `${item.value || 'qrcode'}-${item.id}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
-      
+
       await new Promise(resolve => setTimeout(resolve, 100));
     }
   };
@@ -228,7 +251,6 @@ const QRCodeBatch = () => {
   const updateSetting = <K extends keyof QRCodeSettings>(key: K, value: QRCodeSettings[K]) => {
     const newSettings = { ...settings, [key]: value };
     setSettings(newSettings);
-    // 更新预览
     if (dataItems[previewIndex]) {
       generateQRCode(dataItems[previewIndex].value, newSettings).then(url => setPreviewUrl(url));
     }
@@ -252,17 +274,17 @@ const QRCodeBatch = () => {
           {STEPS.map((step, index) => (
             <div key={step.id} className="flex items-center">
               <div className={`flex items-center gap-2 ${
-                currentStep === step.id 
-                  ? 'text-purple-600' 
-                  : currentStep > step.id 
-                    ? 'text-green-600' 
+                currentStep === step.id
+                  ? 'text-purple-600'
+                  : currentStep > step.id
+                    ? 'text-green-600'
                     : 'text-gray-400'
               }`}>
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                  currentStep === step.id 
-                    ? 'bg-purple-600 text-white' 
-                    : currentStep > step.id 
-                      ? 'bg-green-600 text-white' 
+                  currentStep === step.id
+                    ? 'bg-purple-600 text-white'
+                    : currentStep > step.id
+                      ? 'bg-green-600 text-white'
                       : 'bg-gray-200'
                 }`}>
                   {currentStep > step.id ? (
@@ -289,14 +311,24 @@ const QRCodeBatch = () => {
           <div className="space-y-4">
             {/* Import Methods */}
             <div className="bg-white rounded-xl border border-gray-100 p-4">
-              <h3 className="font-medium text-gray-900 mb-3">导入方式</h3>
-              
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-medium text-gray-900">导入方式</h3>
+                <span className="text-xs text-gray-400">上限 {MAX_IMPORT} 条</span>
+              </div>
+
+              {importError && (
+                <div className="mb-3 flex items-center gap-2 bg-red-50 text-red-600 text-sm rounded-lg px-3 py-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{importError}</span>
+                </div>
+              )}
+
               {/* Text Input */}
               <div className="mb-4">
                 <label className="text-sm text-gray-600 mb-2 block">手动输入（每行一条数据）</label>
                 <textarea
                   value={textInput}
-                  onChange={(e) => setTextInput(e.target.value)}
+                  onChange={(e) => { setTextInput(e.target.value); setImportError(''); }}
                   placeholder="请输入二维码内容，每行一条..."
                   className="w-full h-24 px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-purple-500"
                 />
@@ -311,11 +343,11 @@ const QRCodeBatch = () => {
 
               {/* File Import */}
               <div className="border-t pt-4">
-                <label className="text-sm text-gray-600 mb-2 block">文件导入（Excel/CSV/TXT）</label>
+                <label className="text-sm text-gray-600 mb-2 block">文件导入（CSV/TXT）</label>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".csv,.txt,.xls,.xlsx"
+                  accept=".csv,.txt"
                   onChange={handleFileImport}
                   className="hidden"
                 />
@@ -376,9 +408,9 @@ const QRCodeBatch = () => {
                 {dataItems[previewIndex] && (
                   <div className="text-center">
                     {previewUrl && (
-                      <img 
-                        src={previewUrl} 
-                        alt="QR Code Preview" 
+                      <img
+                        src={previewUrl}
+                        alt="QR Code Preview"
                         className="mx-auto"
                         style={{ maxWidth: '200px' }}
                       />
@@ -432,8 +464,8 @@ const QRCodeBatch = () => {
                     key={tab.key}
                     onClick={() => setActiveTab(tab.key as typeof activeTab)}
                     className={`px-4 py-3 text-sm whitespace-nowrap ${
-                      activeTab === tab.key 
-                        ? 'text-purple-600 border-b-2 border-purple-600' 
+                      activeTab === tab.key
+                        ? 'text-purple-600 border-b-2 border-purple-600'
                         : 'text-gray-500'
                     }`}
                   >
@@ -557,8 +589,8 @@ const QRCodeBatch = () => {
                             <button
                               onClick={() => updateSetting('footnotePosition', 'top')}
                               className={`flex-1 py-2 rounded-lg text-sm ${
-                                settings.footnotePosition === 'top' 
-                                  ? 'bg-purple-600 text-white' 
+                                settings.footnotePosition === 'top'
+                                  ? 'bg-purple-600 text-white'
                                   : 'bg-gray-100 text-gray-600'
                               }`}
                             >
@@ -567,8 +599,8 @@ const QRCodeBatch = () => {
                             <button
                               onClick={() => updateSetting('footnotePosition', 'bottom')}
                               className={`flex-1 py-2 rounded-lg text-sm ${
-                                settings.footnotePosition === 'bottom' 
-                                  ? 'bg-purple-600 text-white' 
+                                settings.footnotePosition === 'bottom'
+                                  ? 'bg-purple-600 text-white'
                                   : 'bg-gray-100 text-gray-600'
                               }`}
                             >
@@ -607,7 +639,7 @@ const QRCodeBatch = () => {
               <div className="grid grid-cols-3 gap-2 bg-gray-50 rounded-lg p-4">
                 {dataItems.slice(0, 9).map((item) => (
                   <div key={item.id} className="text-center bg-white rounded-lg p-2">
-                    <div 
+                    <div
                       className="mx-auto bg-gray-100 rounded"
                       style={{ width: '60px', height: '60px' }}
                     />
@@ -623,7 +655,7 @@ const QRCodeBatch = () => {
             {/* Export Options */}
             <div className="bg-white rounded-xl border border-gray-100 p-4">
               <h3 className="font-medium text-gray-900 mb-3">导出格式</h3>
-              
+
               <button
                 onClick={handleExportPNG}
                 className="w-full bg-purple-600 text-white py-3 rounded-lg text-sm font-medium mb-3"
