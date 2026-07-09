@@ -97,6 +97,7 @@ const BarcodeBatch = () => {
   const [previewIndex, setPreviewIndex] = useState(0);
   const [importError, setImportError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // 数据保存到本地
   useEffect(() => {
@@ -136,6 +137,13 @@ const BarcodeBatch = () => {
     }
   }, []);
 
+  // 预览Canvas随设置和索引变化而更新
+  useEffect(() => {
+    if (currentStep === 2 && previewCanvasRef.current && dataItems[previewIndex]) {
+      generateBarcode(previewCanvasRef.current, dataItems[previewIndex].value || '', settings);
+    }
+  }, [currentStep, previewIndex, settings, dataItems, generateBarcode]);
+
   // 导入文本数据
   const handleImportText = () => {
     const lines = textInput.split('\n').filter(line => line.trim());
@@ -163,13 +171,13 @@ const BarcodeBatch = () => {
     reader.onload = (event) => {
       const content = event.target?.result as string;
       const lines = content.split('\n').filter(line => line.trim());
-      
+
       if (lines.length > MAX_IMPORT) {
         setImportError(`导入失败：数据超过 ${MAX_IMPORT} 条限制（当前 ${lines.length} 条）`);
         return;
       }
       setImportError('');
-      
+
       // CSV格式处理
       const newItems: DataItem[] = lines.map((line, index) => {
         const cols = line.split(/[,;\t]/);
@@ -181,13 +189,15 @@ const BarcodeBatch = () => {
           footnote3: cols[3]?.trim() || '',
         };
       }).filter(item => item.value);
-      
+
       setDataItems(newItems);
       if (newItems.length > 0) {
         setCurrentStep(2);
       }
     };
     reader.readAsText(file);
+    // 重置input，允许重复选择同一文件
+    e.target.value = '';
   };
 
   // 添加单条数据
@@ -206,7 +216,11 @@ const BarcodeBatch = () => {
 
   // 删除数据项
   const handleRemoveItem = (id: string) => {
-    setDataItems(dataItems.filter(item => item.id !== id));
+    const newItems = dataItems.filter(item => item.id !== id);
+    setDataItems(newItems);
+    if (previewIndex >= newItems.length) {
+      setPreviewIndex(Math.max(0, newItems.length - 1));
+    }
   };
 
   // 更新数据项
@@ -220,33 +234,67 @@ const BarcodeBatch = () => {
   const handleExportPNG = async () => {
     for (const item of dataItems) {
       const canvas = document.createElement('canvas');
-      canvas.width = 300;
-      canvas.height = 150;
+      // 让 JsBarcode 自动设置 canvas 尺寸
       generateBarcode(canvas, item.value, settings);
-      
-      // 添加脚注
-      const ctx = canvas.getContext('2d');
-      if (ctx && (settings.footnote1 || settings.footnote2 || settings.footnote3 || item.footnote1)) {
-        ctx.fillStyle = '#000000';
-        ctx.font = `${settings.footnoteSize}px sans-serif`;
-        ctx.textAlign = 'center';
-        
-        const y = settings.footnotePosition === 'top' ? settings.margin : canvas.height - settings.margin - settings.footnoteSize;
-        
-        let footnoteText = '';
-        if (settings.footnote1) footnoteText += settings.footnote1 + ' ';
-        if (settings.footnote2) footnoteText += settings.footnote2 + ' ';
-        if (settings.footnote3) footnoteText += settings.footnote3 + ' ';
-        if (item.footnote1) footnoteText += item.footnote1;
-        
-        ctx.fillText(footnoteText.trim(), canvas.width / 2, y);
+
+      // 如果有脚注，需要扩展 canvas 高度
+      const hasFootnote = settings.footnote1 || settings.footnote2 || settings.footnote3 || item.footnote1;
+      if (hasFootnote) {
+        const originalCanvas = document.createElement('canvas');
+        originalCanvas.width = canvas.width;
+        originalCanvas.height = canvas.height;
+        const origCtx = originalCanvas.getContext('2d');
+        if (origCtx) origCtx.drawImage(canvas, 0, 0);
+
+        const extraHeight = settings.footnoteSize + 10;
+        const newCanvas = document.createElement('canvas');
+        newCanvas.width = canvas.width;
+        newCanvas.height = canvas.height + extraHeight;
+        const newCtx = newCanvas.getContext('2d');
+        if (newCtx) {
+          newCtx.fillStyle = settings.background;
+          newCtx.fillRect(0, 0, newCanvas.width, newCanvas.height);
+
+          if (settings.footnotePosition === 'top') {
+            // 脚注在顶部
+            newCtx.drawImage(originalCanvas, 0, extraHeight);
+            newCtx.fillStyle = settings.lineColor;
+            newCtx.font = `${settings.footnoteSize}px sans-serif`;
+            newCtx.textAlign = 'center';
+            let footnoteText = '';
+            if (settings.footnote1) footnoteText += settings.footnote1 + ' ';
+            if (settings.footnote2) footnoteText += settings.footnote2 + ' ';
+            if (settings.footnote3) footnoteText += settings.footnote3 + ' ';
+            if (item.footnote1) footnoteText += item.footnote1;
+            newCtx.fillText(footnoteText.trim(), newCanvas.width / 2, settings.footnoteSize);
+          } else {
+            // 脚注在底部
+            newCtx.drawImage(originalCanvas, 0, 0);
+            newCtx.fillStyle = settings.lineColor;
+            newCtx.font = `${settings.footnoteSize}px sans-serif`;
+            newCtx.textAlign = 'center';
+            let footnoteText = '';
+            if (settings.footnote1) footnoteText += settings.footnote1 + ' ';
+            if (settings.footnote2) footnoteText += settings.footnote2 + ' ';
+            if (settings.footnote3) footnoteText += settings.footnote3 + ' ';
+            if (item.footnote1) footnoteText += item.footnote1;
+            newCtx.fillText(footnoteText.trim(), newCanvas.width / 2, newCanvas.height - 5);
+          }
+          // 复制到原canvas
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            canvas.width = newCanvas.width;
+            canvas.height = newCanvas.height;
+            ctx.drawImage(newCanvas, 0, 0);
+          }
+        }
       }
-      
+
       const link = document.createElement('a');
       link.download = `${item.value || 'barcode'}-${item.id}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
-      
+
       // 延迟下载，避免浏览器阻止
       await new Promise(resolve => setTimeout(resolve, 100));
     }
@@ -428,9 +476,7 @@ const BarcodeBatch = () => {
                 {dataItems[previewIndex] && (
                   <div className="text-center">
                     <canvas 
-                      ref={(canvas) => {
-                        if (canvas) generateBarcode(canvas, dataItems[previewIndex]?.value || '', settings);
-                      }}
+                      ref={previewCanvasRef}
                       className="mx-auto"
                     />
                     <p className="text-xs text-gray-500 mt-2">
@@ -489,7 +535,7 @@ const BarcodeBatch = () => {
                 {activeTab === 'basic' && (
                   <div className="space-y-4">
                     {/* Format */}
-                    <div>
+                    <div className="relative">
                       <label className="text-sm text-gray-600 mb-2 block">条码格式</label>
                       <button
                         onClick={() => setShowFormatDropdown(!showFormatDropdown)}
@@ -499,7 +545,7 @@ const BarcodeBatch = () => {
                         {showFormatDropdown ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                       </button>
                       {showFormatDropdown && (
-                        <div className="absolute left-4 right-4 mt-1 bg-white border rounded-lg shadow-lg z-50">
+                        <div className="absolute left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-50">
                           {BARCODE_FORMATS.map((format) => (
                             <button
                               key={format.value}

@@ -70,6 +70,7 @@ const QRCodeBatch = () => {
   const [previewIndex, setPreviewIndex] = useState(0);
   const [previewUrl, setPreviewUrl] = useState('');
   const [importError, setImportError] = useState('');
+  const [exportPreviewUrls, setExportPreviewUrls] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 数据保存到本地
@@ -102,6 +103,25 @@ const QRCodeBatch = () => {
       return '';
     }
   }, []);
+
+  // 进入步骤2或切换预览索引时自动生成预览
+  useEffect(() => {
+    if (currentStep === 2 && dataItems[previewIndex]) {
+      generateQRCode(dataItems[previewIndex].value, settings).then(url => setPreviewUrl(url));
+    }
+  }, [currentStep, previewIndex, settings, dataItems, generateQRCode]);
+
+  // 进入步骤3时生成导出预览
+  useEffect(() => {
+    if (currentStep === 3) {
+      const previewItems = dataItems.slice(0, 9);
+      Promise.all(
+        previewItems.map(item =>
+          generateQRCode(item.value, { ...settings, size: 80 })
+        )
+      ).then(urls => setExportPreviewUrls(urls));
+    }
+  }, [currentStep, dataItems, settings, generateQRCode]);
 
   // 导入文本数据
   const handleImportText = () => {
@@ -157,6 +177,8 @@ const QRCodeBatch = () => {
       }
     };
     reader.readAsText(file);
+    // 重置input，允许重复选择同一文件
+    e.target.value = '';
   };
 
   // 添加单条数据
@@ -206,7 +228,10 @@ const QRCodeBatch = () => {
 
         const img = new window.Image();
         img.src = qrUrl;
-        await new Promise(resolve => { img.onload = resolve; });
+        await new Promise((resolve) => {
+          img.onload = resolve;
+          img.onerror = resolve;
+        });
 
         ctx.drawImage(img, 0, 0);
 
@@ -511,7 +536,7 @@ const QRCodeBatch = () => {
                     </div>
 
                     {/* Error Correction Level */}
-                    <div>
+                    <div className="relative">
                       <label className="text-sm text-gray-600 mb-2 block">容错级别</label>
                       <button
                         onClick={() => setShowLevelDropdown(!showLevelDropdown)}
@@ -521,7 +546,7 @@ const QRCodeBatch = () => {
                         {showLevelDropdown ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                       </button>
                       {showLevelDropdown && (
-                        <div className="absolute left-4 right-4 mt-1 bg-white border rounded-lg shadow-lg z-50">
+                        <div className="absolute left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-50">
                           {ERROR_CORRECTION_LEVELS.map((level) => (
                             <button
                               key={level.value}
@@ -637,13 +662,22 @@ const QRCodeBatch = () => {
             <div className="bg-white rounded-xl border border-gray-100 p-4">
               <h3 className="font-medium text-gray-900 mb-3">导出预览</h3>
               <div className="grid grid-cols-3 gap-2 bg-gray-50 rounded-lg p-4">
-                {dataItems.slice(0, 9).map((item) => (
+                {dataItems.slice(0, 9).map((item, index) => (
                   <div key={item.id} className="text-center bg-white rounded-lg p-2">
-                    <div
-                      className="mx-auto bg-gray-100 rounded"
-                      style={{ width: '60px', height: '60px' }}
-                    />
-                    <p className="text-xs text-gray-500 mt-1 truncate">{item.value.slice(0, 10)}...</p>
+                    {exportPreviewUrls[index] ? (
+                      <img
+                        src={exportPreviewUrls[index]}
+                        alt={item.value}
+                        className="mx-auto"
+                        style={{ width: '60px', height: '60px' }}
+                      />
+                    ) : (
+                      <div
+                        className="mx-auto bg-gray-100 rounded animate-pulse"
+                        style={{ width: '60px', height: '60px' }}
+                      />
+                    )}
+                    <p className="text-xs text-gray-500 mt-1 truncate">{item.value.slice(0, 10)}</p>
                   </div>
                 ))}
               </div>
